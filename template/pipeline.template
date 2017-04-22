@@ -1,0 +1,177 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Template for full CI/CD static sites."
+Parameters:
+  AppName:
+    Type: String
+    Description: Name of the application.
+    MinLength: "1"
+    MaxLength: "80"
+    AllowedPattern: "[A-Za-z0-9-]+"
+    ConstraintDescription: Malformed input parameter. AppName must only contain upper and lower case letters, numbers, and -.
+  CodeBuildImage:
+    Type: String
+    Default: "aws/codebuild/ruby:2.3.1"
+    Description: Image used for CodeBuild project.
+  GitHubRepoName:
+    Type: String
+    Description: The GitHub repo name
+  GitHubRepoBranch:
+    Type: String
+    Description: The GitHub repo branch code pipelines should watch for changes on
+    Default: master
+  GitHubUser:
+    Type: String
+    Description: GitHub UserName. This username must have access to the GitHubToken.
+  GitHubToken:
+    NoEcho: true
+    Type: String
+    Description: "Secret. OAuthToken with access to Repo. Long string of characters and digits. Go to https://github.com/settings/tokens"
+  CodePipelineRole:
+    Type: String
+    Description: Role the pipeline will use
+  CodeBuildRole:
+    Type: String
+    Description: Role for code build
+  LambdaPublishRole:
+    Type: String
+    Description: Role for lambda publisher
+  LiveStaticSiteBucket:
+    Type: String
+    Description: Name of the existing bucket for your live static site
+
+Resources:
+
+  SiteDeployer:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${AppName}-lambda-publisher"
+      Handler: lambda.lambda_handler
+      Code:
+        S3Bucket: dryrun.cloud-resources
+        S3Key: 2017-04-23-getting-started-static-sites-cd/staticsite_deployer.zip
+      Runtime: python2.7
+      Timeout: 300
+      Role: !Ref LambdaPublishRole
+
+  CodeBuildProject:
+    DependsOn: [S3Bucket]
+    Description: Creating AWS CodeBuild project
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Description: !Sub "Building stage for ${AppName}."
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        EnvironmentVariables:
+          - Name: S3_BUCKET
+            Value: !Ref S3Bucket
+        Image: !Ref CodeBuildImage
+        Type: LINUX_CONTAINER
+      Name: !Sub "${AppName}-build"
+      ServiceRole: !Ref CodeBuildRole
+      Source:
+        Type: CODEPIPELINE
+      Tags:
+        - Key: app-name
+          Value: !Ref AppName
+      TimeoutInMinutes: 5
+
+  S3Bucket:
+    Description: Creating Amazon S3 bucket for AWS CodePipeline artifacts
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub "codepipeline-app-${AWS::AccountId}-${AWS::Region}-${AppName}"
+      VersioningConfiguration:
+        Status: Enabled
+
+  S3ArtifactBucketPolicy:
+    DependsOn: [S3Bucket]
+    Description: Setting Amazon S3 bucket policy for AWS CodePipeline access
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Id: SSEAndSSLPolicy
+        Statement:
+        - Sid: DenyInsecureConnections
+          Effect: Deny
+          Principal: "*"
+          Action: s3:*
+          Resource: !Sub "arn:aws:s3:::${S3Bucket}/*"
+          Condition:
+            Bool:
+              aws:SecureTransport: false
+
+  ProjectPipeline:
+    DependsOn: [S3Bucket, CodeBuildProject]
+    Description: Creating a deployment pipeline for your project in AWS CodePipeline
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub "${AppName}-pipeline"
+      RoleArn: !Ref CodePipelineRole
+      Stages:
+      - Name: Source
+        Actions:
+        - Name: source
+          InputArtifacts: []
+          ActionTypeId:
+            Version: "1"
+            Category: Source
+            Owner: ThirdParty
+            Provider: GitHub
+          OutputArtifacts:
+          - Name: !Sub "${AppName}-SourceArtifact"
+          Configuration:
+            Repo: !Ref GitHubRepoName
+            Branch: !Ref GitHubRepoBranch
+            OAuthToken: !Ref GitHubToken
+            Owner: !Ref GitHubUser
+          RunOrder: 1
+      - Name: Build
+        Actions:
+        - Name: build-from-source
+          InputArtifacts:
+          - Name: !Sub "${AppName}-SourceArtifact"
+          ActionTypeId:
+            Category: Build
+            Owner: AWS
+            Version: "1"
+            Provider: CodeBuild
+          OutputArtifacts:
+          - Name: !Sub "${AppName}-BuildArtifact"
+          Configuration:
+            ProjectName: !Sub "${AppName}-build"
+          RunOrder: 1
+      - Name: Deploy-to-s3
+        Actions:
+        - Name: deploy
+          InputArtifacts:
+          - Name: !Sub "${AppName}-BuildArtifact"
+          ActionTypeId:
+            Category: Invoke
+            Owner: AWS
+            Version: "1"
+            Provider: Lambda
+          Configuration:
+            FunctionName: !Sub "${AppName}-lambda-publisher"
+            UserParameters: !Ref LiveStaticSiteBucket
+      - Name: Approval
+        Actions:
+        - Name: deploy
+          InputArtifacts:
+          - Name: !Sub "${AppName}-BuildArtifact"
+          ActionTypeId:
+            Category: Invoke
+            Owner: AWS
+            Version: "1"
+            Provider: Lambda
+          Configuration:
+            FunctionName: !Sub
+            UserParameters: !Ref LiveStaticSiteBucket
+
+      ArtifactStore:
+        Type: S3
+        Location: !Ref S3Bucket

@@ -1,0 +1,133 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Common resources for application deployed to S3
+
+Parameters:
+  AppName:
+    Type: String
+    Description: Name of the application.
+    MinLength: "1"
+    MaxLength: "100"
+  LiveStaticSiteBucket:
+    Type: String
+    Description: Name of the existing bucket for your live static site
+
+Resources:
+
+  CodeBuildTrustRole:
+    Description: Creating service role in IAM for AWS CodeBuild
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AppName}-codebuild-role"
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [codebuild.amazonaws.com]
+          Action: sts:AssumeRole
+      Path: /
+
+  CodeBuildRolePolicy:
+    Type: AWS::IAM::Policy
+    DependsOn: CodeBuildTrustRole
+    Description: Setting IAM policy for the service role for AWS CodeBuild
+    Properties:
+      PolicyName: CodeBuildRolePolicy
+      PolicyDocument:
+        Statement:
+        - Effect: Allow
+          Action: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
+          Resource: ["*"]
+        - Effect: Allow
+          Resource: ["*"]
+          Action: ["s3:*"]
+        - Effect: Allow
+          Resource: ["*"]
+          Action: ["kms:GenerateDataKey*", "kms:Encrypt", "kms:Decrypt"]
+        - Effect: Allow
+          Resource: ["*"]
+          Action: ["sns:SendMessage"]
+      Roles: [!Ref CodeBuildTrustRole]
+
+  LambdaPublishRole:
+    Description: Creating executioner role in IAM for AWS Lambda
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AppName}-lambda-role"
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [lambda.amazonaws.com]
+          Action: sts:AssumeRole
+      Path: /
+
+  LambdaPublishPolicy:
+    Type: AWS::IAM::Policy
+    DependsOn: LambdaPublishRole
+    Description: Setting IAM policy for the service role for AWS CodeBuild
+    Properties:
+      PolicyName: LambdaPublishPolicy
+      PolicyDocument:
+        Statement:
+        - Effect: Allow
+          Action: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
+          Resource: ["*"]
+        - Effect: Allow
+          Resource: !Sub "arn:aws:s3:::codepipeline-app-${AWS::AccountId}-${AWS::Region}-${AppName}/*"
+          Action: ["s3:*"]
+        - Effect: Allow
+          Resource: !Sub "arn:aws:s3:::${LiveStaticSiteBucket}/*"
+          Action: ["s3:*"]
+        - Effect: Allow
+          Resource: "*"
+          Action: ["codepipeline:PutJobSuccessResult", "codepipeline:PutJobFailureResult"]
+      Roles: [!Ref LambdaPublishRole]
+
+  CodePipelineTrustRole:
+    Description: Creating service role in IAM for AWS CodePipeline
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AppName}-codepipeline-role"
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [codepipeline.amazonaws.com]
+          Action: sts:AssumeRole
+      Path: /
+
+  CodePipelineRolePolicy:
+    Type: AWS::IAM::Policy
+    DependsOn: CodePipelineTrustRole
+    Description: Setting IAM policy for the service role for AWS CodePipeline
+    Properties:
+      PolicyName: CodePipelineRolePolicy
+      PolicyDocument:
+        Statement:
+        - Action: ["s3:GetObject", "s3:GetObjectVersion", "s3:GetBucketVersioning"]
+          Resource: "*"
+          Effect: Allow
+        - Action: ["s3:PutObject"]
+          Resource: ["arn:aws:s3:::codepipeline*"]
+          Effect: Allow
+        - Action: ["codebuild:StartBuild", "codebuild:BatchGetBuilds"]
+          Resource: "*"
+          Effect: Allow
+        - Action: ["cloudwatch:*", "s3:*", "sns:*", "cloudformation:*", "rds:*", "sqs:*", "iam:PassRole"]
+          Resource: "*"
+          Effect: Allow
+        - Action: ["lambda:InvokeFunction", "lambda:ListFunctions"]
+          Resource: "*"
+          Effect: Allow
+      Roles: [!Ref CodePipelineTrustRole]
+
+Outputs:
+  CodePipelineRole:
+    Description: "Role for code pipeline"
+    Value: !GetAtt CodePipelineTrustRole.Arn
+  CodeBuildRole:
+    Description: "Role for code build to build"
+    Value: !GetAtt CodeBuildTrustRole.Arn
+  LambdaPublishRole:
+    Description: "Role for lambda publisher"
+    Value: !GetAtt LambdaPublishRole.Arn
