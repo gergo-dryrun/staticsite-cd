@@ -1,4 +1,3 @@
-# TODO: parameterise the publish
 MODULE:=staticsite_deployer
 
 publish:

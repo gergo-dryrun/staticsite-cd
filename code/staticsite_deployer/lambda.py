@@ -57,10 +57,13 @@ def upload_to_s3(client, path, target_bucket):
     task = ['/usr/bin/python', 'aws.py',
             's3', 'sync', '--delete',
             path + '/_site', 's3://' + target_bucket + '/']
+    print(task)
     p = Popen(task, stdout=PIPE, stderr=PIPE)
     stdout, stderr = p.communicate()
     message = '%s\n%s' % (stdout, stderr)
     print(message)
+    if p.returncode != 0:
+        raise Exception(message)
 
 
 def lambda_handler(event, context):
