@@ -1,13 +1,14 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: "Template for full CI/CD static sites."
+Description: "Template for CI/CD related resources for static sites."
+
 Parameters:
-  AppName:
+  SiteName:
     Type: String
     Description: Name of the application.
     MinLength: "1"
     MaxLength: "80"
     AllowedPattern: "[A-Za-z0-9-]+"
-    ConstraintDescription: Malformed input parameter. AppName must only contain upper and lower case letters, numbers, and -.
+    ConstraintDescription: Malformed input parameter. SiteName must only contain upper and lower case letters, numbers, and -.
   CodeBuildImage:
     Type: String
     Default: "aws/codebuild/ruby:2.3.1"
@@ -35,16 +36,47 @@ Parameters:
   LambdaPublishRole:
     Type: String
     Description: Role for lambda publisher
-  LiveStaticSiteBucket:
+  BaseDomainName:
     Type: String
-    Description: Name of the existing bucket for your live static site
+    Description: "Base domain name of your website. Example: mystaticblog.io"
+  CreateStagingEnvironment:
+    Type: String
+    Default: 'yes'
+    AllowedValues: ['yes', 'no']
+    Description: "Optional: Choose yes if you are using a staging environment backed by S3 static hosted website."
+  StagingSubdomain:
+    Description: "Optional: Subdomain for staging environment"
+    Type: String
+    Default: staging
+  NotificationMail:
+    Description: "Optional: Email for notification when staging is awaiting approval"
+    Type: String
+Metadata:
+
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: Mandatory Settings
+      Parameters: [SiteName, BaseDomainName]
+    - Label:
+        default: Github Settings
+      Parameters: [GitHubRepoName, GitHubUser, GitHubRepoBranch, GitHubToken]
+    - Label:
+        default: Staging environment configurations
+      Parameters: [CreateStagingEnvironment, StagingSubdomain, NotificationMail]
+    - Label:
+        default: AWS Services Settings
+      Parameters: [CodeBuildImage, CodePipelineRole, CodeBuildRole, LambdaPublishRole]
+
+Conditions:
+  CreateStagingEnvironmentActivated: !Equals [!Ref 'CreateStagingEnvironment', 'yes']
 
 Resources:
 
   SiteDeployer:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub "${AppName}-lambda-publisher"
+      FunctionName: !Sub "${SiteName}-lambda-publisher"
       Handler: lambda.lambda_handler
       Code:
         S3Bucket: dryrun.cloud-resources
@@ -60,7 +92,7 @@ Resources:
     Properties:
       Artifacts:
         Type: CODEPIPELINE
-      Description: !Sub "Building stage for ${AppName}."
+      Description: !Sub "Building stage for ${SiteName}."
       Environment:
         ComputeType: BUILD_GENERAL1_SMALL
         EnvironmentVariables:
@@ -68,13 +100,13 @@ Resources:
             Value: !Ref S3Bucket
         Image: !Ref CodeBuildImage
         Type: LINUX_CONTAINER
-      Name: !Sub "${AppName}-build"
+      Name: !Sub "${SiteName}-build"
       ServiceRole: !Ref CodeBuildRole
       Source:
         Type: CODEPIPELINE
       Tags:
         - Key: app-name
-          Value: !Ref AppName
+          Value: !Ref SiteName
       TimeoutInMinutes: 5
 
   S3Bucket:
@@ -82,7 +114,7 @@ Resources:
     Type: AWS::S3::Bucket
     DeletionPolicy: Retain
     Properties:
-      BucketName: !Sub "codepipeline-app-${AWS::AccountId}-${AWS::Region}-${AppName}"
+      BucketName: !Sub "codepipeline-app-${AWS::AccountId}-${AWS::Region}-${SiteName}"
       VersioningConfiguration:
         Status: Enabled
 
@@ -105,12 +137,23 @@ Resources:
             Bool:
               aws:SecureTransport: false
 
+  SnsNotification:
+    Condition: CreateStagingEnvironmentActivated
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !Sub "Pipeline ${SiteName} notification"
+      Subscription:
+      -
+        Endpoint: !Ref NotificationMail
+        Protocol: email
+      TopicName: !Sub ${SiteName}-topic
+
   ProjectPipeline:
     DependsOn: [S3Bucket, CodeBuildProject]
     Description: Creating a deployment pipeline for your project in AWS CodePipeline
     Type: AWS::CodePipeline::Pipeline
     Properties:
-      Name: !Sub "${AppName}-pipeline"
+      Name: !Sub "${SiteName}-pipeline"
       RoleArn: !Ref CodePipelineRole
       Stages:
       - Name: Source
@@ -123,7 +166,7 @@ Resources:
             Owner: ThirdParty
             Provider: GitHub
           OutputArtifacts:
-          - Name: !Sub "${AppName}-SourceArtifact"
+          - Name: !Sub "${SiteName}-SourceArtifact"
           Configuration:
             Repo: !Ref GitHubRepoName
             Branch: !Ref GitHubRepoBranch
@@ -134,44 +177,57 @@ Resources:
         Actions:
         - Name: build-from-source
           InputArtifacts:
-          - Name: !Sub "${AppName}-SourceArtifact"
+          - Name: !Sub "${SiteName}-SourceArtifact"
           ActionTypeId:
             Category: Build
             Owner: AWS
             Version: "1"
             Provider: CodeBuild
           OutputArtifacts:
-          - Name: !Sub "${AppName}-BuildArtifact"
+          - Name: !Sub "${SiteName}-BuildArtifact"
           Configuration:
-            ProjectName: !Sub "${AppName}-build"
+            ProjectName: !Sub "${SiteName}-build"
           RunOrder: 1
-      - Name: Deploy-to-s3
+      - !If
+        - CreateStagingEnvironmentActivated
+        - Name: Staging
+          Actions:
+          - Name: Deploy-to-Staging
+            InputArtifacts:
+            - Name: !Sub "${SiteName}-BuildArtifact"
+            ActionTypeId:
+              Category: Invoke
+              Owner: AWS
+              Version: "1"
+              Provider: Lambda
+            Configuration:
+              FunctionName: !Sub "${SiteName}-lambda-publisher"
+              UserParameters: !Sub ${StagingSubdomain}.${BaseDomainName}
+            RunOrder: 1
+          - Name: Awaiting-Approval
+            ActionTypeId:
+              Category: Approval
+              Owner: AWS
+              Version: "1"
+              Provider: Manual
+            Configuration:
+              ExternalEntityLink: !Sub http://${StagingSubdomain}.${BaseDomainName}
+              NotificationArn: !Ref SnsNotification
+            RunOrder: 2
+        - !Ref AWS::NoValue
+      - Name: Production
         Actions:
-        - Name: deploy
+        - Name: Deploy-to-Production
           InputArtifacts:
-          - Name: !Sub "${AppName}-BuildArtifact"
+          - Name: !Sub "${SiteName}-BuildArtifact"
           ActionTypeId:
             Category: Invoke
             Owner: AWS
             Version: "1"
             Provider: Lambda
           Configuration:
-            FunctionName: !Sub "${AppName}-lambda-publisher"
-            UserParameters: !Ref LiveStaticSiteBucket
-      - Name: Approval
-        Actions:
-        - Name: deploy
-          InputArtifacts:
-          - Name: !Sub "${AppName}-BuildArtifact"
-          ActionTypeId:
-            Category: Invoke
-            Owner: AWS
-            Version: "1"
-            Provider: Lambda
-          Configuration:
-            FunctionName: !Sub
-            UserParameters: !Ref LiveStaticSiteBucket
-
+            FunctionName: !Sub "${SiteName}-lambda-publisher"
+            UserParameters: !Sub live.${BaseDomainName}
       ArtifactStore:
         Type: S3
         Location: !Ref S3Bucket

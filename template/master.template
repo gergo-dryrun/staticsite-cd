@@ -1,0 +1,91 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: "Main template for a static website CI/CD."
+
+Parameters:
+  SiteName:
+    Type: String
+    Description: Name of the application.
+    MinLength: "1"
+    MaxLength: "80"
+    AllowedPattern: "[A-Za-z0-9-]+"
+    ConstraintDescription: Malformed input parameter. SiteName must only contain upper and lower case letters, numbers, and -.
+  CodeBuildImage:
+    Type: String
+    Default: "aws/codebuild/ruby:2.3.1"
+    Description: Image used for CodeBuild project.
+  GitHubRepoName:
+    Type: String
+    Description: The GitHub repo name
+  GitHubRepoBranch:
+    Type: String
+    Description: The GitHub repo branch code pipelines should watch for changes on
+    Default: master
+  GitHubUser:
+    Type: String
+    Description: GitHub UserName. This username must have access to the GitHubToken.
+  GitHubToken:
+    NoEcho: true
+    Type: String
+    Description: "Secret. OAuthToken with access to Repo. Long string of characters and digits. Go to https://github.com/settings/tokens Needs: read:repo_hook"
+  BaseDomainName:
+    Type: String
+    Description: "Base domain name of your website. Example: mystaticblog.io"
+  CreateStagingEnvironment:
+    Type: String
+    Default: 'yes'
+    AllowedValues: ['yes', 'no']
+    Description: "Optional: Choose yes if you are using a staging environment backed by S3 static hosted website."
+  StagingSubdomain:
+    Description: "Optional: Subdomain for staging environment"
+    Type: String
+    Default: staging
+  NotificationMail:
+    Description: "Optional: Email for notification when staging is awaiting approval"
+    Type: String
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: Mandatory Settings
+      Parameters: [SiteName, BaseDomainName]
+    - Label:
+        default: Github Settings
+      Parameters: [GitHubRepoName, GitHubUser, GitHubRepoBranch, GitHubToken]
+    - Label:
+        default: Staging environment configurations
+      Parameters: [CreateStagingEnvironment, StagingSubdomain, NotificationMail]
+    - Label:
+        default: AWS Services Settings
+      Parameters: [CodeBuildImage]
+
+Resources:
+  PipelineRoles:
+    Type: "AWS::CloudFormation::Stack"
+    Properties:
+      Parameters:
+        SiteName: !Ref SiteName
+        BaseDomainName: !Ref BaseDomainName
+        StagingSubdomain: !Ref StagingSubdomain
+      TemplateURL: "https://s3-eu-west-1.amazonaws.com/dryrun.cloud-resources/2017-04-23-getting-started-static-sites-cd/template/pipeline-roles.template"
+
+  Pipeline:
+    Type: "AWS::CloudFormation::Stack"
+    DependsOn: [PipelineRoles]
+    Properties:
+      Parameters:
+        SiteName: !Ref SiteName
+        BaseDomainName: !Ref BaseDomainName
+        CreateStagingEnvironment: !Ref CreateStagingEnvironment
+        StagingSubdomain: !Ref StagingSubdomain
+        NotificationMail: !Ref NotificationMail
+        CodeBuildImage: !Ref CodeBuildImage
+        GitHubRepoName: !Ref GitHubRepoName
+        GitHubRepoBranch: !Ref GitHubRepoBranch
+        GitHubUser: !Ref GitHubUser
+        GitHubToken: !Ref GitHubToken
+        CodePipelineRole: !GetAtt PipelineRoles.Outputs.CodePipelineRole
+        LambdaPublishRole: !GetAtt PipelineRoles.Outputs.LambdaPublishRole
+        CodeBuildRole: !GetAtt PipelineRoles.Outputs.CodeBuildRole
+      TemplateURL: "https://s3-eu-west-1.amazonaws.com/dryrun.cloud-resources/2017-04-23-getting-started-static-sites-cd/template/pipeline.template"

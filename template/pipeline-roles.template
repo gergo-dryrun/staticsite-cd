@@ -2,14 +2,19 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Common resources for application deployed to S3
 
 Parameters:
-  AppName:
+  SiteName:
     Type: String
     Description: Name of the application.
     MinLength: "1"
     MaxLength: "100"
-  LiveStaticSiteBucket:
+  BaseDomainName:
+    Description: FQDN of site
     Type: String
-    Description: Name of the existing bucket for your live static site
+    Default: example.com
+  StagingSubdomain:
+    Description: Subdomain for staging environment
+    Type: String
+    Default: staging
 
 Resources:
 
@@ -17,7 +22,7 @@ Resources:
     Description: Creating service role in IAM for AWS CodeBuild
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "${AppName}-codebuild-role"
+      RoleName: !Sub "${SiteName}-codebuild-role"
       AssumeRolePolicyDocument:
         Statement:
         - Effect: Allow
@@ -52,7 +57,7 @@ Resources:
     Description: Creating executioner role in IAM for AWS Lambda
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "${AppName}-lambda-role"
+      RoleName: !Sub "${SiteName}-lambda-role"
       AssumeRolePolicyDocument:
         Statement:
         - Effect: Allow
@@ -73,11 +78,20 @@ Resources:
           Action: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
           Resource: ["*"]
         - Effect: Allow
-          Resource: !Sub "arn:aws:s3:::codepipeline-app-${AWS::AccountId}-${AWS::Region}-${AppName}/*"
+          Resource: !Sub "arn:aws:s3:::codepipeline-app-${AWS::AccountId}-${AWS::Region}-${SiteName}/*"
           Action: ["s3:*"]
         - Effect: Allow
-          Resource: !Sub "arn:aws:s3:::${LiveStaticSiteBucket}/*"
+          Resource: !Sub "arn:aws:s3:::live.${BaseDomainName}/*"
           Action: ["s3:*"]
+        - Effect: Allow
+          Resource: !Sub "arn:aws:s3:::live.${BaseDomainName}"
+          Action: ["s3:List*"]
+        - Effect: Allow
+          Resource: !Sub "arn:aws:s3:::${StagingSubdomain}.${BaseDomainName}/*"
+          Action: ["s3:*"]
+        - Effect: Allow
+          Resource: !Sub "arn:aws:s3:::${StagingSubdomain}.${BaseDomainName}"
+          Action: ["s3:List*"]
         - Effect: Allow
           Resource: "*"
           Action: ["codepipeline:PutJobSuccessResult", "codepipeline:PutJobFailureResult"]
@@ -87,7 +101,7 @@ Resources:
     Description: Creating service role in IAM for AWS CodePipeline
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "${AppName}-codepipeline-role"
+      RoleName: !Sub "${SiteName}-codepipeline-role"
       AssumeRolePolicyDocument:
         Statement:
         - Effect: Allow
