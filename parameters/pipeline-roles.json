@@ -1,0 +1,14 @@
+[
+  {
+    "ParameterKey": "SiteName",
+    "ParameterValue": "example-com"
+  },
+  {
+    "ParameterKey": "DomainName",
+    "ParameterValue": "example.com"
+  },
+  {
+    "ParameterKey": "StagingSubdomain",
+    "ParameterValue": "staging"
+  }
+]

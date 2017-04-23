@@ -1,0 +1,46 @@
+[
+  {
+    "ParameterKey": "SiteName",
+    "ParameterValue": "example-com"
+  },
+  {
+    "ParameterKey": "CodePipelineRole",
+    "ParameterValue": "arn:aws:iam::ACCOUNT:role/example-com-codepipeline-role"
+  },
+  {
+    "ParameterKey": "LambdaPublishRole",
+    "ParameterValue": "arn:aws:iam::ACCOUNT:role/example-com-lambda-role"
+  },
+  {
+    "ParameterKey": "CodeBuildRole",
+    "ParameterValue": "arn:aws:iam::ACCOUNT:role/example-com-codebuild-role"
+  },
+  {
+    "ParameterKey": "CodeBuildImage",
+    "ParameterValue": "aws/codebuild/ruby:2.3.1"
+  },
+  {
+    "ParameterKey": "GitHubRepoName",
+    "ParameterValue": "staticsiterepo"
+  },
+  {
+    "ParameterKey": "GitHubUser",
+    "ParameterValue": "youruser"
+  },
+  {
+    "ParameterKey": "GitHubToken",
+    "ParameterValue": "get it from https://github.com/settings/tokens read:repo_hook"
+  },
+  {
+    "ParameterKey": "BaseDomainName",
+    "ParameterValue": "example.com"
+  },
+  {
+    "ParameterKey": "StagingSubdomain",
+    "ParameterValue": "staging"
+  },
+  {
+    "ParameterKey": "NotificationMail",
+    "ParameterValue": "contact@example.com"
+  }
+]

@@ -1,0 +1,38 @@
+[
+  {
+    "ParameterKey": "SiteName",
+    "ParameterValue": "example-com"
+  },
+  {
+    "ParameterKey": "CodeBuildImage",
+    "ParameterValue": "aws/codebuild/ruby:2.3.1"
+  },
+  {
+    "ParameterKey": "GitHubRepoName",
+    "ParameterValue": "example.com"
+  },
+  {
+    "ParameterKey": "GitHubUser",
+    "ParameterValue": "youruser"
+  },
+  {
+    "ParameterKey": "GitHubToken",
+    "ParameterValue": "get it from https://github.com/settings/tokens"
+  },
+  {
+    "ParameterKey": "BaseDomainName",
+    "ParameterValue": "example.com"
+  },
+  {
+    "ParameterKey": "CreateStagingEnvironment",
+    "ParameterValue": "yes"
+  },
+  {
+    "ParameterKey": "StagingSubdomain",
+    "ParameterValue": "staging"
+  },
+  {
+    "ParameterKey": "NotificationMail",
+    "ParameterValue": "contact@example.com"
+  }
+]
